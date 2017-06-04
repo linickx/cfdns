@@ -1,0 +1,647 @@
+#!/bin/bash
+#
+# cfdns as shell script for talking to the CloudFlare DNS API
+#
+
+# Do not change these
+CFBASEURL="https://api.cloudflare.com/client/v4/"
+DEBUG=False
+CFDNS_VERSION="0.1.0"
+CURL_AGENT="cfdns/$CFDNS_VERSION (https://github.com/linickx/cfdns)"
+
+# Use Config file for variables.
+if [ -e ~/.cfdns_config ]
+then
+    # shellcheck source=/Users/nick/
+    . ~/.cfdns_config
+fi
+
+#
+# All the functions
+# underscore functions are like "private", others appear in help command/readme
+#
+_check_dep() # Dependency Checking
+{
+    # http://stackoverflow.com/questions/592620/how-to-check-if-a-program-exists-from-a-bash-script
+    type $1 >/dev/null 2>&1 || { echo >&2 "I require $1 but it's not installed.  Aborting."; exit 50; }
+}
+
+_function_exists() # Checks if a function is defined (Used for commands)
+{
+    # https://stackoverflow.com/questions/85880/determine-if-a-function-exists-in-bash
+    declare -f -F $1 > /dev/null
+    return $?
+}
+
+_mandatory_opts() # Check (or ask) for mandatory options
+{
+    # Read mandatory/missing items
+    if [ -z "$CFEMAIL" ]
+    then
+        read -p "Enter Email Address:" CFEMAIL
+    fi
+    if [ -z "$CFAPIKEY" ]
+        then
+        read -s -p "Enter API Key:" CFAPIKEY
+        echo
+    fi
+
+    if [ $DEBUG == True ];then echo "Email:$CFEMAIL API:$CFAPIKEY CMD:$CMD";fi
+}
+_cfreq_zones() # CloudFlare Request - base zones
+{
+    _mandatory_opts
+    # Base Cloud Flare Request - Used for finding domains
+    CFREQUEST=$(curl -s -X GET -A "$CURL_AGENT" "$CFBASEURL/zones/" -H "Content-Type:application/json" -H "X-Auth-Key:$CFAPIKEY" -H "X-Auth-Email:$CFEMAIL")
+
+    if [ "$(echo $CFREQUEST | jq .success)" == "true" ]
+    then
+        if [ $DEBUG == True ];then echo "$(echo $CFREQUEST| jq .)";fi
+    else
+        EMSG="$(echo $CFREQUEST | jq .errors[0].message)"
+        echo "Request failed - $EMSG"
+        if [ $DEBUG == True ];then echo "$(echo $CFREQUEST| jq .)";fi
+        exit 1
+    fi
+
+}
+
+_cfreq_domain() # CloudFlare Request - one zone
+{
+    CFRQEDOM=$(curl -s -X GET -A "$CURL_AGENT" "$CFBASEURL/zones/$CFDOMID/dns_records" -H "Content-Type:application/json" -H "X-Auth-Key:$CFAPIKEY" -H "X-Auth-Email:$CFEMAIL")
+    if [ $DEBUG == True ];then echo "$(echo $CFRQEDOM| jq .)";fi
+}
+
+_cfpost_record() # Post a Record to CloudFlare - Used by both Update and Add
+{
+    CFRNAME=$1 # Record Name
+    echo " Name: $CFRNAME"
+
+    CFRCONTENT=$2 # Record Content
+    echo " Content: $CFRCONTENT"
+
+    # '{"type":"A","name":"example.com","content":"127.0.0.1","ttl":120,"proxied":false}'
+    # shellcheck disable=SC2089 
+    JSONDATA="{"'"type":"'$CFRTYPE'","name":"'$CFRNAME'","content":"'$CFRCONTENT'"'
+
+    if [ "$3" == "proxy" ] # To proxy or not to proxy
+    then
+        CFRPROXY="true"
+        echo " Proxied: $CFRPROXY"
+        JSONDATA=$JSONDATA',"proxied":'$CFRPROXY
+    fi
+
+    if [ -n "$CFRTTL" ] # Manual TTL Entry
+    then
+        echo " TTL: $CFRTTL"
+        JSONDATA=$JSONDATA',"ttl":'$CFRTTL
+        if [ "$CFRPROXY" == "true" ]
+        then
+            echo "** WARNING TTLs are ignored when Proxy is set **"
+        fi
+    fi
+
+    JSONDATA=$JSONDATA"}"
+    if [ $DEBUG == True ];then echo "JSONDATA=$JSONDATA";fi
+
+    # Add / Request a Reord
+    # curl -X POST "https://api.cloudflare.com/client/v4/zones/023e105f4ecef8ad9ca31a8372d0c353/dns_records" \
+    # -H "X-Auth-Email: user@example.com" \
+    # -H "X-Auth-Key: c2547eb745079dac9320b638f5e225cf483cc5cfdda41" \
+    # -H "Content-Type: application/json" \
+    # --data '{"type":"A","name":"example.com","content":"127.0.0.1","ttl":120,"proxied":false}'
+
+    # Update a Record
+    # curl -X PUT "https://api.cloudflare.com/client/v4/zones/023e105f4ecef8ad9ca31a8372d0c353/dns_records/372e67954025e0ba6aaa6d586b9e0b59" \
+    #  -H "X-Auth-Email: user@example.com" \
+    #  -H "X-Auth-Key: c2547eb745079dac9320b638f5e225cf483cc5cfdda41" \
+    #  -H "Content-Type: application/json" \
+    #  --data '{"type":"A","name":"example.com","content":"127.0.0.1","ttl":120,"proxied":false}'
+
+    # shellcheck disable=SC2090
+    CFPOST=$(curl -s -X $CURL_METHOD -A "$CURL_AGENT" "$CURL_URL" -H "Content-Type:application/json" -H "X-Auth-Key:$CFAPIKEY" -H "X-Auth-Email:$CFEMAIL" --data $JSONDATA)
+
+    if [ "$(echo $CFPOST | jq .success)" == "true" ]
+    then
+        if [ $DEBUG == True ];then echo "$(echo $CFPOST| jq .)";fi
+        echo "Success."
+        exit
+    else
+        EMSG="$(echo $CFPOST | jq .errors[0].message)"
+        echo "Request failed - $EMSG"
+        Number_of_ERRS=$(echo $CFPOST | jq '.errors[0].error_chain | length')
+        echo "$Number_of_ERRS Errors"
+        for ((i=0; i<Number_of_ERRS; i++)); do
+            echo $CFPOST | jq .errors[0].error_chain[$i].message | tr -d '"'
+        done
+        if [ $DEBUG == True ];then echo "$(echo $CFPOST| jq .)";fi
+        exit 1
+    fi
+
+}
+
+function list() # List Domains or Records (-d domain.com | -i xxyyzz)
+{
+    case $1 in # One Command
+        help ) list-help;exit;;
+    esac
+
+    # Domain Supplied?
+    if [ -n "$CFDOM" ]
+    then
+        find_domain $CFDOM
+    fi
+
+    # Domain ID Defined?
+    if [ -n "$CFDOMID" ]
+    then
+        _mandatory_opts
+        _cfreq_domain
+        echo $CFRQEDOM | jq -r '"ID | Name | Type | Content", (.result[] | "\(.id) | \(.name) | \(.type) | \(.content) ") ' | column -t -s '|'
+    else
+        # Default, Nothing Supplied
+        _cfreq_zones
+        echo $CFREQUEST | jq -r '"ID | Name", (.result[] | "\(.id) | \(.name)") ' | column -t -s '|'
+    fi
+    exit
+}
+
+function list-help() # Prints the Help for List Command
+{
+    cat << EndOfMessage
+
+## Listing Domains and Records
+
+ By Default list will print out all the zones (domains) associated with your cloudflare accout  
+ 
+ If you supply the \`-d\`, domain reords will be shown, or you can supply the domain id with \`-i\`  
+ e.g.  
+     \`cfdns -d linickx.com list\`  
+ or  
+     \`cfdns -i xxxyyyzzz list\`  
+
+ Example output:
+
+    $ ./cfdns -d linickx.com list
+    Domain linickx.com = 166ce8f27d9ca271e885f09b43ef1af0
+    ID                                  Name                             Type     Content
+    166ce8f27d9ca271e885f09b43ef1af1    *.linickx.com                    A        5.79.27.96
+    166ce8f27d9ca271e885f09b43ef1af2    linickx.com                      A        5.79.27.96
+    166ce8f27d9ca271e885f09b43ef1af3    www.linickx.com                  A        5.79.27.96
+    166ce8f27d9ca271e885f09b43ef1af4    *.linickx.com                    AAAA     2a00:1a48:7803:107:181e:ce0e:ff08:f58
+    166ce8f27d9ca271e885f09b43ef1af5    linickx.com                      AAAA     2a00:1a48:7803:107:181e:ce0e:ff08:f58
+    166ce8f27d9ca271e885f09b43ef1af6    www.linickx.com                  AAAA     2a00:1a48:7803:107:181e:ce0e:ff08:f58
+    $
+ 
+EndOfMessage
+
+}
+
+
+function add() # Add a record
+{
+    if [ -n "$CFDOM" ]
+    then
+        find_domain $CFDOM
+    fi
+
+    if [ -z "$CFDOMID" ]
+    then
+        add-help
+        exit 1
+    fi
+
+    CURL_METHOD="POST" # New Records are POST
+    CURL_URL="$CFBASEURL/zones/$CFDOMID/dns_records" # Records are sent to the domain
+
+
+    SUBCMD=($@)
+    case $1 in
+        help ) add-help;;
+        a ) add-a "${SUBCMD[@]}";;
+        "") echo "No Record Type Given"; exit 1;;
+        *) echo "Unknown Record Type $1"; exit 1;;
+    esac
+    exit
+}
+
+function add-help() # Prints the Help for the Add Command
+{ 
+cat << EndOfMessage
+
+## Add a DNS Record
+
+ All commands require either \`-i\` or \`-d\` to direct the add request to the correct zone
+ 
+ The first argument is the "name" for example test.linickx.com  
+ The second argument is the "content" for example 123.123.1.1  
+ The third argument option, supply "proxy" to enably proxying (which is off by default)  
+
+ e.g.  
+     \`cfdns -d linickx.com add a test.linickx.com 123.123.1.1\`  
+ or  
+     \`cfdns -d linickx.com add a test.linickx.com 123.123.1.1 proxy\`  
+ or  
+     \`cfdns -i xxxyyyzzz add a test.linickx.com 123.123.1.1\`  
+ or  
+     \`cfdns -i xxxyyyzzz add a test.linickx.com 123.123.1.1 proxy\`  
+
+ This is an example output:
+
+    $ ./cfdns -d linickx.com add a test.linickx.com 123.123.1.1 proxy
+    Domain linickx.com = 166ce8f27d9ca271e885f09b43ef1af0
+    Requesting Record...
+     Name: test.linickx.com
+     Content: 123.123.1.1
+     Proxied: true
+    Success.
+    $
+
+### Supported (Implemented) Record Types
+* a
+
+EndOfMessage
+}
+
+function add-a() # Add an A Record
+{
+    if [ $DEBUG == True ];then echo "add-a: $*";fi
+
+    shift
+    CFRTYPE="A";
+    
+
+    echo "Requesting Record..."
+    DATA=($@)
+    _cfpost_record "${DATA[@]}"
+}
+
+
+function update() # Update a record
+{
+
+    CURL_METHOD="PUT" # All Update Methods are PUT
+
+    SUBCMD=($@)
+    case $1 in
+        help ) update-help;;
+        a ) update-a "${SUBCMD[@]}";;
+        "") echo "No Record Type Given"; exit 1;;
+        *) echo "Unknown Record Type $1"; exit 1;;
+    esac
+    exit
+}
+
+function update-help() # Prints the Help for the Update Command
+{ 
+cat << EndOfMessage
+
+## Update a DNS Record
+
+ Updated / Change an existing record.
+
+ Example:
+
+    $ ./cfdns -d linickx.com update a test.linickx.com 4.4.4.3
+    Domain linickx.com = 166ce8f27d9ca271e885f09b43ef1af0
+    Record A test.linickx.com = f5962f2ccdc0de9195c2352f893ff57c
+    Updating Record...
+     Name: test.linickx.com
+     Content: 4.4.4.3
+    Success.
+    $
+
+
+EndOfMessage
+}
+
+function update-a() # Add an A Record
+{
+    CFRTYPE="A";
+    if [ $DEBUG == True ];then echo "update-a: $*";fi
+
+    find_record $1 $2 # $1 is "a" $2 is "name" $3 is content
+
+    CURL_URL="$CFBASEURL/zones/$CFDOMID/dns_records/$CFRID"
+
+    shift # shift after find, so that record type is dropped
+    echo "Updating Record..."
+    DATA=($@)
+    _cfpost_record "${DATA[@]}"
+
+}
+
+function delete() # Delete a record
+{
+    case $1 in # One Command
+        help ) delete-help;exit;;
+    esac
+
+    if [ $DEBUG == True ];then echo "delete: $*";fi
+
+    find_record $1 $2 # $1 is "a" $2 is "name" 
+
+    CFRNAME=$2 # Record Name
+    CURL_METHOD="DELETE" # All Update Methods are PUT
+    CURL_URL="$CFBASEURL/zones/$CFDOMID/dns_records/$CFRID"
+
+    echo "Delete Record ($CFRNAME)..."
+    CFPOST=$(curl -s -X $CURL_METHOD -A "$CURL_AGENT" "$CURL_URL" -H "Content-Type:application/json" -H "X-Auth-Key:$CFAPIKEY" -H "X-Auth-Email:$CFEMAIL")
+
+    if [ "$(echo $CFPOST | jq .success)" == "true" ]
+    then
+        if [ $DEBUG == True ];then echo "$(echo $CFPOST| jq .)";fi
+        echo "Success."
+        exit
+    else
+        EMSG="$(echo $CFPOST | jq .errors[0].message)"
+        echo "Request failed - $EMSG"
+        Number_of_ERRS=$(echo $CFPOST | jq '.errors[0].error_chain | length')
+        echo "$Number_of_ERRS Errors"
+        for ((i=0; i<Number_of_ERRS; i++)); do
+            echo $CFPOST | jq .errors[0].error_chain[$i].message | tr -d '"'
+        done
+        if [ $DEBUG == True ];then echo "$(echo $CFPOST| jq .)";fi
+        exit 1
+    fi
+
+}
+
+function delete-help() # Prints the Help for the Delete Command
+{ 
+cat << EndOfMessage
+
+## Delete a Record
+
+ Delete an existing record.
+
+ Example:
+
+    $ ./cfdns -d linickx.com delete a test.linickx.com
+    Domain linickx.com = 166ce8f27d9ca271e885f09b43ef1af0
+    Record A test.linickx.com = f5962f2ccdc0de9195c2352f893ff57c
+    Delete Record (test.linickx.com)...
+    Success.
+    $
+
+EndOfMessage
+}
+
+function find_domain() # Find a Domain ID
+{
+    if [ -n "$1" ]
+    then
+        case $1 in # One Command
+            help ) find_domain-help;exit;;
+        esac
+
+        CFDOM=$1
+    fi
+
+    if [ -z "$CFDOM" ] && [ -z "$1" ]
+    then
+        read -p "Enter a Domain: " CFDOM
+    fi
+
+    _cfreq_zones
+    Number_of_Domains=$(echo $CFREQUEST | jq '. | length')
+    FoundDomain=False
+    if [ $DEBUG == True ];then echo "$Number_of_Domains Domains Found";fi
+
+    for ((i=0; i<Number_of_Domains; i++)); do
+        aCFDOM=$(echo $CFREQUEST | jq .result[$i].name | tr -d '"')
+        aCFDOMID=$(echo $CFREQUEST | jq .result[$i].id | tr -d '"')
+        if [ $DEBUG == True ];then echo " aCFDOM $aCFDOM | aCFDOMID $aCFDOMID";fi
+
+        if [ "$CFDOM" = "$aCFDOM" ]
+        then
+            CFDOMID=$aCFDOMID
+            FoundDomain=True
+        fi
+    done
+
+    if [ $FoundDomain == True ]
+    then
+        echo "Domain $CFDOM = $CFDOMID"
+    else
+        echo "404: $CFDOM not found"
+        exit 1
+    fi
+}
+
+function find_domain-help() # Prints the Help for the find_domain Command
+{ 
+cat << EndOfMessage
+
+## Find A Domain ID
+
+ The input is a domain name (zone) the output is the CloudFlare Zone ID.  
+ Mainly used as an internal function, but might be useful for someone.
+
+ Example:
+
+    $ ./cfdns find_domain linickx.com
+    Domain linickx.com = 166ce8f27d9ca271e885f09b43ef1af0
+    $
+
+EndOfMessage
+}
+
+function find_record() # Find a record by type and name
+{
+    if [ -n "$CFDOM" ]
+    then
+        find_domain $CFDOM
+    fi
+
+    if [ -z "$CFDOMID" ]
+    then
+        find_record-help
+        exit 1
+    fi
+    
+    case $1 in # One Command
+        help ) find_record-help;exit;;
+    esac
+
+    CRFTYPE=$(echo "$1" | tr '[:lower:]' '[:upper:]') # Convert $1 to upper case
+    CFRNAME=$2
+
+    _cfreq_domain # Request All Records
+
+    Number_of_Records=$(echo $CFRQEDOM | jq '. | length')
+    FoundRecord=False
+    if [ $DEBUG == True ];then echo "$Number_of_Records Records Found";fi
+
+    for ((i=0; i<Number_of_Records; i++)); do
+        aCFRNAME=$(echo $CFRQEDOM | jq .result[$i].name | tr -d '"')
+        aCFRID=$(echo $CFRQEDOM | jq .result[$i].id | tr -d '"')
+        aCFRTYPE=$(echo $CFRQEDOM | jq .result[$i].type | tr -d '"')
+
+        if [ $DEBUG == True ];then echo " aCFRNAME $aCFRNAME | aCFRID $aCFRID | aCFRTYPE $aCFRTYPE";fi
+
+        if [ "$CRFTYPE" = "$aCFRTYPE" ]
+        then
+            if [ "$CFRNAME" = "$aCFRNAME" ]
+            then
+                CFRID=$aCFRID
+                FoundRecord=True
+            fi
+        fi
+    done
+
+    if [ $FoundRecord == True ]
+    then
+        echo "Record $CRFTYPE $CFRNAME = $CFRID"
+    else
+        echo "404: $CRFTYPE $CFRNAME not found"
+        exit 1
+    fi
+}
+
+function find_record-help() # Prints the Help for the find_record Command
+{ 
+cat << EndOfMessage
+
+## Find A Record ID
+
+The input is similar to other commands, record type folled by a record name; the output is the CloudFlare Record ID. ** REQUIRES ** \`-d\`   
+Mainly used as an internal function, but might be useful for someone.
+
+Example:
+
+    $ ./cfdns -d linickx.com find_record a linickx.com
+    Domain linickx.com = 166ce8f27d9ca271e885f09b43ef1af0
+    Record A linickx.com = 22097d2d138caeade7e3326434a38ad5
+    $
+
+EndOfMessage
+}
+
+
+function help() # Prints out the usage information
+{
+    cat << EndOfMessage
+
+     cfdns [-eaidh] command
+
+     Options:  
+     -e email address
+     -a API key
+     -i ID (Doamin ID)
+     -d Domain
+     -t TTL
+     -h Help
+     -v Verbose (Debug Mode)
+    
+    Commands:
+EndOfMessage
+
+    grep "^function" $0 | sed 's/function/    /' | sed 's/()//' | sed 's/-/ /' | column -t -s '#'
+    echo
+    echo "#### $(version)"
+}
+
+function version() # Print the version number
+{
+    echo "Version = $CFDNS_VERSION"
+}
+
+function readme() # Generates README.md
+{
+    cat << EndOfMessage
+# cfdns
+CFDNS is a CloudFlare DNS CLI client in bash, with a little (**a lot**) \`jq\`!
+
+There is an [offical CloudFlare cli client](https://blog.cloudflare.com/python-cloudflare/) but I did not want to install another python module, so this is inspired by the lessons learnt from [my very own rsdns](https://github.com/linickx/rsdns)
+
+## Basic Usage
+EndOfMessage
+    help
+    cat << EndOfMessage
+## The Config File
+The config file is \`~/.cfdns_config\` the following variables are supported to save some typing:
+
+* \`CFEMAIL\` - Your Email Address (associated with your CloudFlare account)
+* \`CFAPIKEY\` - Your CloudFlare API Key
+* \`CFDOM\` - CloudFlare Domain (if you only work with one zone)
+* \`CFDOMID\` - CloudFlare Domain ID (if you only work with one zone)
+* \`CFRTTL\` - TTL (Time to Live) for if you are not a fan of automatic
+
+Example File:
+
+    $ cat ~/.cfdns_config
+    CFEMAIL="cfdns@linickx.com"
+    CFAPIKEY="7846b13a48e6ac2b8dd79264f8ac814a12765"
+    $
+
+EndOfMessage
+    list-help
+    add-help
+    update-help
+    delete-help
+    find_domain-help
+    find_record-help
+}
+#
+# Script starts here
+#
+
+# Check for dependencies
+_check_dep "curl"
+_check_dep "jq"
+_check_dep "sed"
+_check_dep "tr"
+
+#Get options from the command line.
+while getopts "e:a:i:d:t::hv" option
+do
+    case $option in
+        e) CFEMAIL=$OPTARG ;;
+        a) CFAPIKEY=$OPTARG ;;
+        i) CFDOMID=$OPTARG ;;
+        d) CFDOM=$OPTARG ;;
+        t) CFRTTL=$OPTARG ;;
+        h) help;exit 0 ;;
+        v) DEBUG=True ;;
+    esac
+done
+
+# Validate TTL
+if [ -n "$CFRTTL" ]
+then
+    if [ $CFRTTL -lt 120 ]
+    then
+        echo "TTL Cannot be less than 120"
+        exit 1
+    fi
+    if [ $CFRTTL -gt 2147483647 ]
+    then
+        echo "TTL Cannot be greater than 2147483647"
+        exit 1
+    fi
+fi
+
+# Move final arg to $1
+shift $((OPTIND-1))
+CMD=$1
+
+# By Default run the list command
+if [ "$CMD" == "" ]
+then
+    shift
+    list "$@"
+fi
+
+# Run function based on input
+if _function_exists $CMD
+then
+    shift
+    SUBCMD=($@)
+    $CMD "${SUBCMD[@]}"
+else
+    echo "$1 not found"
+    exit 1
+fi
+
+
