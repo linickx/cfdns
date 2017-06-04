@@ -3,39 +3,44 @@ CFDNS is a CloudFlare DNS CLI client in bash, with a little (**a lot**) `jq`!
 
 There is an [offical CloudFlare cli client](https://blog.cloudflare.com/python-cloudflare/) but I did not want to install another python module, so this is inspired by the lessons learnt from [my very own rsdns](https://github.com/linickx/rsdns)
 
-## Basic Usage
+## Basic Usage
+
+Using cfdns should be straight forward.  
+
 
      cfdns [-eaidh] command
 
-     Options:  
-     -e email address
-     -a API key
-     -i ID (Doamin ID)
-     -d Domain
-     -t TTL
-     -h Help
-     -v Verbose (Debug Mode)
-    
-    Commands:
-     list                List Domains or Records ( d domain.com | -i xxyyzz)
-     list help           Prints the Help for List Command
-     add                 Add a record
-     add help            Prints the Help for the Add Command
-     add a               Add an A Record
-     update              Update a record
-     update help         Prints the Help for the Update Command
-     update a            Add an A Record
-     delete              Delete a record
-     delete help         Prints the Help for the Delete Command
-     find_domain         Find a Domain ID
-     find_domain help    Prints the Help for the find_domain Command
-     find_record         Find a record by type and name
-     find_record help    Prints the Help for the find_record Command
-     help                Prints out the usage information
-     version             Print the version number
-     readme              Generates README.md
+### Options:  
 
-#### Version = 0.1.0
+ * `-e` email address
+ * `-a` API key
+ * `-i` ID (Doamin ID)
+ * `-d` Domain
+ * `-t` TTL
+ * `-h` Help
+ * `-v` Verbose (Debug Mode)
+
+### Commands:
+
+ * list                ~ List Domains or Records ( d domain.com | -i xxyyzz)
+ * list help           ~ Prints the Help for List Command
+ * add                 ~ Add a record
+ * add help            ~ Prints the Help for the Add Command
+ * add a               ~ Add an A Record
+ * update              ~ Update a record
+ * update help         ~ Prints the Help for the Update Command
+ * update a            ~ Add an A Record
+ * delete              ~ Delete a record
+ * delete help         ~ Prints the Help for the Delete Command
+ * find_domain         ~ Find a Domain ID
+ * find_domain help    ~ Prints the Help for the find_domain Command
+ * find_record         ~ Find a record by type and name
+ * find_record help    ~ Prints the Help for the find_record Command
+ * help                ~ Prints out the usage information
+ * version             ~ Print the version number
+ * readme              ~ Generates README.md
+
+#### Version = 0.1.1
 ## The Config File
 The config file is `~/.cfdns_config` the following variables are supported to save some typing:
 

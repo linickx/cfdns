@@ -6,7 +6,7 @@
 # Do not change these
 CFBASEURL="https://api.cloudflare.com/client/v4/"
 DEBUG=False
-CFDNS_VERSION="0.1.0"
+CFDNS_VERSION="0.1.1"
 CURL_AGENT="cfdns/$CFDNS_VERSION (https://github.com/linickx/cfdns)"
 
 # Use Config file for variables.
@@ -140,7 +140,7 @@ _cfpost_record() # Post a Record to CloudFlare - Used by both Update and Add
 
 }
 
-function list() # List Domains or Records (-d domain.com | -i xxyyzz)
+function list() # ~ List Domains or Records (-d domain.com | -i xxyyzz)
 {
     case $1 in # One Command
         help ) list-help;exit;;
@@ -166,7 +166,7 @@ function list() # List Domains or Records (-d domain.com | -i xxyyzz)
     exit
 }
 
-function list-help() # Prints the Help for List Command
+function list-help() # ~ Prints the Help for List Command
 {
     cat << EndOfMessage
 
@@ -198,7 +198,7 @@ EndOfMessage
 }
 
 
-function add() # Add a record
+function add() # ~ Add a record
 {
     if [ -n "$CFDOM" ]
     then
@@ -225,7 +225,7 @@ function add() # Add a record
     exit
 }
 
-function add-help() # Prints the Help for the Add Command
+function add-help() # ~ Prints the Help for the Add Command
 { 
 cat << EndOfMessage
 
@@ -263,7 +263,7 @@ cat << EndOfMessage
 EndOfMessage
 }
 
-function add-a() # Add an A Record
+function add-a() # ~ Add an A Record
 {
     if [ $DEBUG == True ];then echo "add-a: $*";fi
 
@@ -277,7 +277,7 @@ function add-a() # Add an A Record
 }
 
 
-function update() # Update a record
+function update() # ~ Update a record
 {
 
     CURL_METHOD="PUT" # All Update Methods are PUT
@@ -292,7 +292,7 @@ function update() # Update a record
     exit
 }
 
-function update-help() # Prints the Help for the Update Command
+function update-help() # ~ Prints the Help for the Update Command
 { 
 cat << EndOfMessage
 
@@ -315,7 +315,7 @@ cat << EndOfMessage
 EndOfMessage
 }
 
-function update-a() # Add an A Record
+function update-a() # ~ Add an A Record
 {
     CFRTYPE="A";
     if [ $DEBUG == True ];then echo "update-a: $*";fi
@@ -331,7 +331,7 @@ function update-a() # Add an A Record
 
 }
 
-function delete() # Delete a record
+function delete() # ~ Delete a record
 {
     case $1 in # One Command
         help ) delete-help;exit;;
@@ -367,7 +367,7 @@ function delete() # Delete a record
 
 }
 
-function delete-help() # Prints the Help for the Delete Command
+function delete-help() # ~ Prints the Help for the Delete Command
 { 
 cat << EndOfMessage
 
@@ -387,7 +387,7 @@ cat << EndOfMessage
 EndOfMessage
 }
 
-function find_domain() # Find a Domain ID
+function find_domain() # ~ Find a Domain ID
 {
     if [ -n "$1" ]
     then
@@ -429,7 +429,7 @@ function find_domain() # Find a Domain ID
     fi
 }
 
-function find_domain-help() # Prints the Help for the find_domain Command
+function find_domain-help() # ~ Prints the Help for the find_domain Command
 { 
 cat << EndOfMessage
 
@@ -447,7 +447,7 @@ cat << EndOfMessage
 EndOfMessage
 }
 
-function find_record() # Find a record by type and name
+function find_record() # ~ Find a record by type and name
 {
     if [ -n "$CFDOM" ]
     then
@@ -499,7 +499,7 @@ function find_record() # Find a record by type and name
     fi
 }
 
-function find_record-help() # Prints the Help for the find_record Command
+function find_record-help() # ~ Prints the Help for the find_record Command
 { 
 cat << EndOfMessage
 
@@ -519,35 +519,37 @@ EndOfMessage
 }
 
 
-function help() # Prints out the usage information
+function help() # ~ Prints out the usage information
 {
     cat << EndOfMessage
 
      cfdns [-eaidh] command
 
-     Options:  
-     -e email address
-     -a API key
-     -i ID (Doamin ID)
-     -d Domain
-     -t TTL
-     -h Help
-     -v Verbose (Debug Mode)
-    
-    Commands:
+### Options:  
+
+ * \`-e\` email address
+ * \`-a\` API key
+ * \`-i\` ID (Doamin ID)
+ * \`-d\` Domain
+ * \`-t\` TTL
+ * \`-h\` Help
+ * \`-v\` Verbose (Debug Mode)
+
+### Commands:
+
 EndOfMessage
 
-    grep "^function" $0 | sed 's/function/    /' | sed 's/()//' | sed 's/-/ /' | column -t -s '#'
+    grep "^function" $0 | sed 's/function/ */' | sed 's/()//' | sed 's/-/ /' | column -t -s '#'
     echo
     echo "#### $(version)"
 }
 
-function version() # Print the version number
+function version() # ~ Print the version number
 {
     echo "Version = $CFDNS_VERSION"
 }
 
-function readme() # Generates README.md
+function readme() # ~ Generates README.md
 {
     cat << EndOfMessage
 # cfdns
@@ -555,7 +557,10 @@ CFDNS is a CloudFlare DNS CLI client in bash, with a little (**a lot**) \`jq\`!
 
 There is an [offical CloudFlare cli client](https://blog.cloudflare.com/python-cloudflare/) but I did not want to install another python module, so this is inspired by the lessons learnt from [my very own rsdns](https://github.com/linickx/rsdns)
 
-## Basic Usage
+## Basic Usage
+
+Using cfdns should be straight forward.  
+
 EndOfMessage
     help
     cat << EndOfMessage
